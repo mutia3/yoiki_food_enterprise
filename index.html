@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YOIKI FOOD - Enterprise Management v2.1</title>
+    <title>YOIKI FOOD - Enterprise Management v2.2</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -18,6 +18,7 @@
         input, select, textarea { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; outline: none; transition: all 0.2s; width: 100%; font-size: 14px; }
         input:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(255,140,0,0.1); }
         .card { background: white; border-radius: 24px; border: 1px solid #f1f5f9; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+        .status-pill { padding: 4px 12px; border-radius: 20px; font-size: 10px; font-weight: 800; text-transform: uppercase; }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
     </style>
@@ -30,7 +31,10 @@
             <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-orange-400 to-orange-600"></div>
             <div class="text-center mb-10">
                 <h1 class="text-4xl font-extrabold text-slate-800 italic">YOIKI<span class="text-orange-500">FOOD</span></h1>
-                <p class="text-slate-400 text-xs font-bold uppercase tracking-widest mt-2">Enterprise Edition v2.1</p>
+                <p class="text-slate-400 text-[10px] font-bold uppercase tracking-widest mt-2">Enterprise Edition v2.2</p>
+                <div id="connection-badge" class="mt-4 flex justify-center">
+                    <span class="status-pill bg-slate-100 text-slate-400">Memeriksa Koneksi...</span>
+                </div>
             </div>
             <div class="space-y-5">
                 <div>
@@ -48,7 +52,12 @@
 
     <!-- Sidebar -->
     <nav id="app-sidebar" class="hidden md:flex flex-col w-72 bg-white border-r border-slate-200 h-screen flex-shrink-0">
-        <div class="p-8 text-2xl font-extrabold italic text-slate-800">YOIKI<span class="text-orange-500">FOOD</span></div>
+        <div class="p-8">
+            <div class="text-2xl font-extrabold italic text-slate-800">YOIKI<span class="text-orange-500">FOOD</span></div>
+            <div id="sync-indicator" class="mt-1 text-[9px] font-bold uppercase tracking-tighter text-slate-400 flex items-center gap-1">
+                <div class="w-2 h-2 rounded-full bg-slate-300"></div> Offline Mode
+            </div>
+        </div>
         <div class="flex-grow overflow-y-auto" id="nav-content"></div>
         <div class="p-6 border-t border-slate-100 bg-slate-50">
             <div class="flex items-center gap-3 mb-6">
@@ -73,6 +82,10 @@
     </div>
 
     <script>
+        // --- CONFIG & AUTO-DETECT LOGIC ---
+        const API_URL = 'http://localhost:3000/api';
+        let isOnline = false;
+
         // --- DATA & STATE ---
         let currentUser = null;
         let app = {
@@ -93,11 +106,72 @@
             attendance: []
         };
 
-        const savedData = localStorage.getItem('yoiki_food_data');
-        if (savedData) app = JSON.parse(savedData);
+        // --- SYSTEM INITIALIZATION ---
+        async function checkConnection() {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 sec timeout
+                const response = await fetch(`${API_URL}/health`, { signal: controller.signal });
+                isOnline = response.ok;
+            } catch (err) {
+                isOnline = false;
+            }
+            updateStatusUI();
+            return isOnline;
+        }
+
+        function updateStatusUI() {
+            const badge = document.getElementById('connection-badge');
+            const syncInd = document.getElementById('sync-indicator');
+            
+            const html = isOnline 
+                ? `<span class="status-pill bg-green-100 text-green-600"><i class="fas fa-link mr-1"></i> Connected to Server</span>`
+                : `<span class="status-pill bg-orange-100 text-orange-600"><i class="fas fa-plug mr-1"></i> Local Mode</span>`;
+            
+            if(badge) badge.innerHTML = html;
+            if(syncInd) {
+                syncInd.innerHTML = isOnline 
+                    ? `<div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div> Server Active`
+                    : `<div class="w-2 h-2 rounded-full bg-orange-500"></div> Local Storage Mode`;
+            }
+        }
+
+        async function initData() {
+            // Cek koneksi dulu
+            await checkConnection();
+            
+            if (isOnline) {
+                try {
+                    const res = await fetch(`${API_URL}/all-data`);
+                    if(res.ok) {
+                        const cloudData = await res.json();
+                        app = { ...app, ...cloudData };
+                        console.log("Data synced from server");
+                    }
+                } catch (e) {
+                    console.warn("Server detected but failed to fetch data, falling back to local.");
+                    loadLocal();
+                }
+            } else {
+                loadLocal();
+            }
+        }
+
+        function loadLocal() {
+            const savedData = localStorage.getItem('yoiki_food_data');
+            if (savedData) app = JSON.parse(savedData);
+        }
 
         function persist() {
             localStorage.setItem('yoiki_food_data', JSON.stringify(app));
+            if (isOnline) {
+                // Background sync attempt
+                fetch(`${API_URL}/sync`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(app)
+                }).catch(e => console.log("Silent sync failed, data kept locally."));
+            }
         }
 
         // --- AUTH LOGIC ---
@@ -165,7 +239,7 @@
             }
         }
 
-        // --- UTILS ---
+        // --- MODAL & DATA HELPERS ---
         function openModal(html) {
             const m = document.getElementById('modal-system');
             document.getElementById('modal-body').innerHTML = `
@@ -189,15 +263,20 @@
             }
         }
 
-        // --- VIEWS ---
+        // --- DASHBOARD VIEW ---
         function viewDashboard(container) {
             const income = app.transactions.filter(x => x.type === 'in').reduce((a,b) => a+b.amount, 0);
             const expense = app.transactions.filter(x => x.type === 'out').reduce((a,b) => a+b.amount, 0);
             
             container.innerHTML = `
-                <div class="mb-10">
-                    <h2 class="text-3xl font-extrabold text-slate-800">Ringkasan Eksekutif</h2>
-                    <p class="text-slate-400">Yoiki Food v2.1 Monitoring.</p>
+                <div class="mb-10 flex justify-between items-start">
+                    <div>
+                        <h2 class="text-3xl font-extrabold text-slate-800">Ringkasan Eksekutif</h2>
+                        <p class="text-slate-400">Status Sistem: ${isOnline ? 'Online Sync' : 'Offline Local'}</p>
+                    </div>
+                    <button onclick="initData()" class="p-3 bg-slate-100 rounded-full hover:bg-slate-200 transition text-slate-500">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
                     <div class="card p-6">
@@ -216,7 +295,7 @@
             `;
         }
 
-        // Fitur Stock
+        // --- STOCK VIEW ---
         function viewStock(container) {
             container.innerHTML = `
                 <div class="mb-8 flex justify-between items-center">
@@ -285,7 +364,7 @@
             persist(); closeModal(); renderView('stock');
         }
 
-        // Fitur Opname
+        // --- OPNAME VIEW ---
         function viewOpname(container) {
             container.innerHTML = `
                 <div class="mb-8 flex justify-between items-center">
@@ -349,7 +428,7 @@
             persist(); closeModal(); renderView('opname');
         }
 
-        // Keuangan
+        // --- FINANCE VIEW ---
         function viewFinance(container) {
             container.innerHTML = `
                 <div class="mb-10 text-center">
@@ -399,7 +478,7 @@
             persist(); renderView('finance');
         }
 
-        // Absensi
+        // --- ATTENDANCE VIEW ---
         function viewAttendance(container) {
             const today = new Date().toISOString().split('T')[0];
             const hasAttended = app.attendance.find(a => a.userId === currentUser.id && a.date === today);
@@ -421,7 +500,7 @@
             persist(); renderView('attendance');
         }
 
-        // Penggajian
+        // --- PAYROLL VIEW ---
         function viewPayroll(container) {
             container.innerHTML = `
                 <div class="mb-8"><h2 class="text-3xl font-extrabold text-slate-800">Penggajian</h2></div>
@@ -452,7 +531,7 @@
             doc.save(`Slip_${u.name}.pdf`);
         }
 
-        // Laporan
+        // --- REPORTS VIEW ---
         function viewReports(container) {
             container.innerHTML = `
                 <div class="mb-10"><h2 class="text-3xl font-extrabold text-slate-800">Laporan</h2></div>
@@ -478,7 +557,7 @@
             doc.save(`Laporan_${type}.pdf`);
         }
 
-        // Cabang
+        // --- BRANCHES VIEW ---
         function viewBranches(container) {
             container.innerHTML = `
                 <div class="mb-8 flex justify-between items-center"><h2 class="text-3xl font-extrabold">Cabang</h2><button onclick="editBranchModal()" class="bg-slate-900 text-white px-6 py-2 rounded-xl font-bold">+ Cabang</button></div>
@@ -494,7 +573,7 @@
             persist(); closeModal(); renderView('branches');
         }
 
-        // User
+        // --- USERS VIEW ---
         function viewUsers(container) {
             container.innerHTML = `
                 <div class="mb-8 flex justify-between items-center"><h2 class="text-3xl font-extrabold">Manajemen User</h2><button onclick="editUserModal()" class="bg-slate-900 text-white px-6 py-2 rounded-xl font-bold">+ User Baru</button></div>
@@ -528,10 +607,13 @@
             persist(); closeModal(); renderView('users');
         }
 
-        // Initialize
-        window.onload = () => {
+        // --- INITIALIZE ON LOAD ---
+        window.onload = async () => {
+            await initData();
+            // Jika user sebelumnya sudah login (misal dalam 1 session tanpa refresh keras)
             if (currentUser) {
                 document.getElementById('login-screen').classList.add('hidden');
+                document.getElementById('app-sidebar').classList.remove('hidden');
                 renderView('dashboard');
             }
         };
