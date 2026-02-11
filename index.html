@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YOIKI FOOD - Enterprise Management v2.1</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap');
+        :root { --primary: #FF8C00; --navy: #001F3F; }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; color: #1e293b; }
+        .sidebar-item { transition: all 0.2s; border-radius: 12px; margin: 4px 12px; cursor: pointer; display: flex; align-items: center; gap: 12px; padding: 12px; }
+        .sidebar-item:hover { background: rgba(255,140,0,0.1); color: var(--primary); }
+        .sidebar-item.active { background: var(--primary); color: white; box-shadow: 0 4px 12px rgba(255,140,0,0.3); }
+        input, select, textarea { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; outline: none; transition: all 0.2s; width: 100%; font-size: 14px; }
+        input:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(255,140,0,0.1); }
+        .card { background: white; border-radius: 24px; border: 1px solid #f1f5f9; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    </style>
+</head>
+<body class="flex flex-col md:flex-row min-h-screen overflow-hidden">
+
+    <!-- Auth Layer -->
+    <div id="login-screen" class="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900 p-4">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md p-10 relative overflow-hidden">
+            <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-orange-400 to-orange-600"></div>
+            <div class="text-center mb-10">
+                <h1 class="text-4xl font-extrabold text-slate-800 italic">YOIKI<span class="text-orange-500">FOOD</span></h1>
+                <p class="text-slate-400 text-xs font-bold uppercase tracking-widest mt-2">Enterprise Edition v2.1</p>
+            </div>
+            <div class="space-y-5">
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-tighter">Username</label>
+                    <input type="text" id="login-user" placeholder="Username" value="owner">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-tighter">Password</label>
+                    <input type="password" id="login-pass" placeholder="••••••••" value="123">
+                </div>
+                <button onclick="authAction()" class="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-4 rounded-xl shadow-lg transition transform active:scale-95">MASUK SISTEM</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <nav id="app-sidebar" class="hidden md:flex flex-col w-72 bg-white border-r border-slate-200 h-screen flex-shrink-0">
+        <div class="p-8 text-2xl font-extrabold italic text-slate-800">YOIKI<span class="text-orange-500">FOOD</span></div>
+        <div class="flex-grow overflow-y-auto" id="nav-content"></div>
+        <div class="p-6 border-t border-slate-100 bg-slate-50">
+            <div class="flex items-center gap-3 mb-6">
+                <div class="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center text-white font-bold shadow-md" id="user-initial">U</div>
+                <div class="overflow-hidden">
+                    <p class="text-sm font-bold text-slate-800 truncate" id="user-name">User Name</p>
+                    <p class="text-[10px] text-slate-400 uppercase font-extrabold tracking-tighter" id="user-role">Role</p>
+                </div>
+            </div>
+            <button onclick="logout()" class="w-full flex items-center justify-center gap-2 py-3 bg-red-50 text-red-500 rounded-xl font-bold text-xs hover:bg-red-500 hover:text-white transition">
+                <i class="fas fa-power-off"></i> KELUAR SISTEM
+            </button>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="flex-1 h-screen overflow-y-auto p-4 md:p-10" id="main-view"></main>
+
+    <!-- Modal System -->
+    <div id="modal-system" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[250] hidden items-center justify-center p-4">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" id="modal-body"></div>
+    </div>
+
+    <script>
+        // --- DATA & STATE ---
+        let currentUser = null;
+        let app = {
+            branches: [
+                { id: 1, name: 'Pusat (Metro)', address: 'Kota Metro' },
+                { id: 2, name: 'Cabang Lampung', address: 'Bandar Lampung' }
+            ],
+            users: [
+                { id: 1, name: 'Bpk. Owner', username: 'owner', password: '123', role: 'owner', branchId: 1, salary: 5000000 },
+                { id: 2, name: 'Andi Staff', username: 'karyawan', password: '123', role: 'staff', branchId: 1, salary: 150000 }
+            ],
+            stock: [
+                { id: 1, name: 'Ayam Potong', type: 'mentah', qty: 50, unit: 'Kg', buyPrice: 32000, sellPrice: 0 },
+                { id: 2, name: 'Ayam Bakar Madu', type: 'siap_jual', qty: 20, unit: 'Porsi', buyPrice: 15000, sellPrice: 25000 }
+            ],
+            opnames: [], 
+            transactions: [], 
+            attendance: []
+        };
+
+        // Load data from LocalStorage if exists
+        const savedData = localStorage.getItem('yoiki_food_data');
+        if (savedData) app = JSON.parse(savedData);
+
+        function persist() {
+            localStorage.setItem('yoiki_food_data', JSON.stringify(app));
+        }
+
+        // --- AUTH LOGIC ---
+        function authAction() {
+            const u = document.getElementById('login-user').value;
+            const p = document.getElementById('login-pass').value;
+            const found = app.users.find(x => x.username === u && x.password === p);
+            if (found) {
+                currentUser = found;
+                document.getElementById('login-screen').classList.add('hidden');
+                document.getElementById('app-sidebar').classList.remove('hidden');
+                document.getElementById('user-name').innerText = currentUser.name;
+                document.getElementById('user-role').innerText = currentUser.role;
+                document.getElementById('user-initial').innerText = currentUser.name.charAt(0);
+                buildNav();
+                renderView('dashboard');
+            } else alert('Kredensial salah!');
+        }
+
+        function logout() { location.reload(); }
+
+        // --- NAVIGATION ---
+        function buildNav() {
+            const container = document.getElementById('nav-content');
+            const menu = [
+                { id: 'dashboard', icon: 'fa-chart-pie', label: 'Dashboard', role: 'all' },
+                { id: 'stock', icon: 'fa-boxes', label: 'Stok & Produk', role: 'owner' },
+                { id: 'opname', icon: 'fa-clipboard-check', label: 'Stock Opname', role: 'all' },
+                { id: 'finance', icon: 'fa-money-bill-transfer', label: 'Keuangan', role: 'all' },
+                { id: 'attendance', icon: 'fa-clock', label: 'Absensi', role: 'all' },
+                { id: 'payroll', icon: 'fa-hand-holding-dollar', label: 'Penggajian', role: 'owner' },
+                { id: 'reports', icon: 'fa-file-invoice-dollar', label: 'Laporan PDF', role: 'owner' },
+                { id: 'branches', icon: 'fa-store', label: 'Cabang', role: 'owner' },
+                { id: 'users', icon: 'fa-users-gear', label: 'User', role: 'owner' }
+            ];
+
+            container.innerHTML = menu
+                .filter(m => m.role === 'all' || m.role === currentUser.role)
+                .map(m => `
+                    <div onclick="renderView('${m.id}', this)" class="sidebar-item ${m.id === 'dashboard' ? 'active' : ''}">
+                        <i class="fas ${m.icon} w-5 text-center"></i>
+                        <span class="text-sm font-bold">${m.label}</span>
+                    </div>
+                `).join('');
+        }
+
+        // --- ROUTING ---
+        function renderView(view, el = null) {
+            if (el) {
+                document.querySelectorAll('.sidebar-item').forEach(x => x.classList.remove('active'));
+                el.classList.add('active');
+            }
+            const main = document.getElementById('main-view');
+            main.innerHTML = ''; // Clear
+            
+            switch(view) {
+                case 'dashboard': viewDashboard(main); break;
+                case 'stock': viewStock(main); break;
+                case 'opname': viewOpname(main); break;
+                case 'finance': viewFinance(main); break;
+                case 'attendance': viewAttendance(main); break;
+                case 'payroll': viewPayroll(main); break;
+                case 'reports': viewReports(main); break;
+                case 'branches': viewBranches(main); break;
+                case 'users': viewUsers(main); break;
+            }
+        }
+
+        // --- UTILS ---
+        function openModal(html) {
+            const m = document.getElementById('modal-system');
+            document.getElementById('modal-body').innerHTML = html;
+            m.classList.remove('hidden');
+            m.classList.add('flex');
+        }
+        function closeModal() {
+            const m = document.getElementById('modal-system');
+            m.classList.add('hidden');
+            m.classList.remove('flex');
+        }
+        function deleteData(collection, id, viewRefresh) {
+            if(confirm('Hapus data ini?')) {
+                app[collection] = app[collection].filter(x => x.id !== id);
+                persist();
+                renderView(viewRefresh);
+            }
+        }
+
+        // --- DASHBOARD ---
+        function viewDashboard(container) {
+            const income = app.transactions.filter(x => x.type === 'in').reduce((a,b) => a+b.amount, 0);
+            const expense = app.transactions.filter(x => x.type === 'out').reduce((a,b) => a+b.amount, 0);
+            
+            container.innerHTML = `
+                <div class="mb-10">
+                    <h2 class="text-3xl font-extrabold text-slate-800">Ringkasan Eksekutif</h2>
+                    <p class="text-slate-400">Yoiki Food v2.1 Monitoring.</p>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+                    <div class="card p-6">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Kas Bersih</p>
+                        <p class="text-2xl font-black text-blue-600">Rp ${(income - expense).toLocaleString()}</p>
+                    </div>
+                    <div class="card p-6">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Total Barang</p>
+                        <p class="text-2xl font-black text-orange-500">${app.stock.length} Item</p>
+                    </div>
+                    <div class="card p-6">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Opname Hari Ini</p>
+                        <p class="text-2xl font-black text-green-600">${app.opnames.filter(o => o.date === new Date().toISOString().split('T')[0]).length} Sesi</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        // --- STOCK ---
+        function viewStock(container) {
+            container.innerHTML = `
+                <div class="mb-8 flex justify-between items-center">
+                    <h2 class="text-3xl font-extrabold text-slate-800 tracking-tighter">Gudang & Menu</h2>
+                    <button onclick="editStockModal()" class="bg-slate-900 text-white px-6 py-3 rounded-xl font-bold text-sm shadow-lg">+ Item Baru</button>
+                </div>
+                <div class="card overflow-hidden">
+                    <table class="w-full text-left">
+                        <thead class="bg-slate-50 border-b">
+                            <tr class="text-[10px] uppercase font-black text-slate-400">
+                                <th class="px-6 py-4">Item</th>
+                                <th class="px-6 py-4">Kategori</th>
+                                <th class="px-6 py-4">Stok</th>
+                                <th class="px-6 py-4 text-right">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-50">
+                            ${app.stock.map(s => `
+                                <tr>
+                                    <td class="px-6 py-4 font-bold text-slate-700">${s.name}</td>
+                                    <td class="px-6 py-4"><span class="bg-slate-100 text-slate-500 text-[10px] px-2 py-1 rounded font-bold uppercase">${s.type}</span></td>
+                                    <td class="px-6 py-4 font-bold text-orange-500">${s.qty} ${s.unit}</td>
+                                    <td class="px-6 py-4 text-right whitespace-nowrap">
+                                        <button onclick="editStockModal(${s.id})" class="text-blue-500 p-2"><i class="fas fa-edit"></i></button>
+                                        <button onclick="deleteData('stock', ${s.id}, 'stock')" class="text-red-400 p-2"><i class="fas fa-trash"></i></button>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        function editStockModal(id = null) {
+            const s = id ? app.stock.find(x => x.id === id) : { name: '', type: 'mentah', qty: 0, unit: 'Kg' };
+            openModal(`
+                <div class="p-8">
+                    <h2 class="text-2xl font-black text-slate-800 mb-6">${id ? 'Edit Produk' : 'Tambah Produk'}</h2>
+                    <div class="space-y-4">
+                        <input type="text" id="s-name" placeholder="Nama Produk" value="${s.name}">
+                        <select id="s-type">
+                            <option value="mentah" ${s.type==='mentah'?'selected':''}>Bahan Mentah</option>
+                            <option value="siap_jual" ${s.type==='siap_jual'?'selected':''}>Siap Jual</option>
+                        </select>
+                        <div class="flex gap-4">
+                            <input type="number" id="s-qty" placeholder="Jumlah" value="${s.qty}">
+                            <input type="text" id="s-unit" placeholder="Satuan (Kg/Porsi)" value="${s.unit}">
+                        </div>
+                    </div>
+                    <button onclick="saveStock(${id})" class="w-full bg-orange-500 text-white font-bold py-4 rounded-xl mt-6">SIMPAN</button>
+                </div>
+            `);
+        }
+
+        function saveStock(id) {
+            const data = {
+                id: id || Date.now(),
+                name: document.getElementById('s-name').value,
+                type: document.getElementById('s-type').value,
+                qty: parseFloat(document.getElementById('s-qty').value) || 0,
+                unit: document.getElementById('s-unit').value
+            };
+            if(id) {
+                const idx = app.stock.findIndex(x => x.id === id);
+                app.stock[idx] = data;
+            } else app.stock.push(data);
+            persist(); closeModal(); renderView('stock');
+        }
+
+        // --- OPNAME ---
+        function viewOpname(container) {
+            container.innerHTML = `
+                <div class="mb-8 flex justify-between items-center">
+                    <div>
+                        <h2 class="text-3xl font-extrabold text-slate-800">Stock Opname</h2>
+                        <p class="text-slate-400">Pencatatan harian stok fisik.</p>
+                    </div>
+                    <button onclick="editOpnameModal()" class="bg-orange-500 text-white px-6 py-3 rounded-xl font-bold">+ Opname Baru</button>
+                </div>
+                <div class="card overflow-hidden">
+                    <table class="w-full text-left">
+                        <thead class="bg-slate-50 border-b">
+                            <tr class="text-[10px] uppercase font-bold text-slate-400">
+                                <th class="px-6 py-4">Waktu</th><th class="px-6 py-4">Petugas</th><th class="px-6 py-4">Stock In/Out</th><th class="px-6 py-4">Kas</th><th class="px-6 py-4 text-right">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y">
+                            ${app.opnames.map(o => `
+                                <tr>
+                                    <td class="px-6 py-4"><b>${o.date}</b><br><small>${o.time}</small></td>
+                                    <td class="px-6 py-4">${o.staffName}</td>
+                                    <td class="px-6 py-4">${o.stockOpening} -> ${o.stockClosing}</td>
+                                    <td class="px-6 py-4 text-green-600 font-bold">Rp ${o.kasAkhir.toLocaleString()}</td>
+                                    <td class="px-6 py-4 text-right">
+                                        <button onclick="deleteData('opnames', ${o.id}, 'opname')" class="text-red-400"><i class="fas fa-trash"></i></button>
+                                    </td>
+                                </tr>
+                            `).join('') || '<tr><td colspan="5" class="p-10 text-center text-slate-400 italic">Belum ada data</td></tr>'}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        function editOpnameModal() {
+            openModal(`
+                <div class="p-8">
+                    <h2 class="text-2xl font-black text-slate-800 mb-6">Log Opname</h2>
+                    <div class="grid grid-cols-2 gap-4 mb-4">
+                        <input type="number" id="o-opening" placeholder="Stok Awal">
+                        <input type="number" id="o-closing" placeholder="Stok Akhir">
+                        <input type="number" id="o-modal" placeholder="Modal Buka">
+                        <input type="number" id="o-kas" placeholder="Kas Akhir">
+                    </div>
+                    <textarea id="o-note" placeholder="Catatan tambahan..."></textarea>
+                    <button onclick="saveOpname()" class="w-full bg-orange-500 text-white font-bold py-4 rounded-xl mt-6">SIMPAN OPNAME</button>
+                </div>
+            `);
+        }
+
+        function saveOpname() {
+            const data = {
+                id: Date.now(),
+                date: new Date().toISOString().split('T')[0],
+                time: new Date().toLocaleTimeString('id-ID'),
+                staffName: currentUser.name,
+                stockOpening: document.getElementById('o-opening').value,
+                stockClosing: document.getElementById('o-closing').value,
+                modalBuka: parseInt(document.getElementById('o-modal').value) || 0,
+                kasAkhir: parseInt(document.getElementById('o-kas').value) || 0
+            };
+            app.opnames.push(data);
+            persist(); closeModal(); renderView('opname');
+        }
+
+        // --- FINANCE ---
+        function viewFinance(container) {
+            container.innerHTML = `
+                <div class="mb-10 text-center">
+                    <h2 class="text-3xl font-extrabold text-slate-800">Manajemen Kas</h2>
+                    <p class="text-slate-400">Pencatatan harian arus keuangan.</p>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+                    <div class="card p-8 border-t-4 border-green-500">
+                        <h4 class="font-black text-green-600 text-xs mb-6 uppercase">Input Pemasukan</h4>
+                        <input type="text" id="in-desc" placeholder="Keterangan Pemasukan..." class="mb-4">
+                        <input type="number" id="in-amount" placeholder="Nominal Rp" class="mb-6">
+                        <button onclick="addFinance('in')" class="w-full bg-green-600 text-white font-bold py-3 rounded-xl">CATAT MASUK</button>
+                    </div>
+                    <div class="card p-8 border-t-4 border-red-500">
+                        <h4 class="font-black text-red-600 text-xs mb-6 uppercase">Input Pengeluaran</h4>
+                        <input type="text" id="out-desc" placeholder="Keperluan..." class="mb-4">
+                        <input type="number" id="out-amount" placeholder="Nominal Rp" class="mb-6">
+                        <button onclick="addFinance('out')" class="w-full bg-red-600 text-white font-bold py-3 rounded-xl">CATAT KELUAR</button>
+                    </div>
+                </div>
+                <div class="card overflow-hidden">
+                    <table class="w-full text-left">
+                        <thead class="bg-slate-50">
+                            <tr class="text-[10px] font-bold uppercase text-slate-400">
+                                <th class="px-6 py-4">Keterangan</th><th class="px-6 py-4">Jenis</th><th class="px-6 py-4">Nominal</th><th class="px-6 py-4">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y">
+                            ${app.transactions.slice().reverse().map(t => `
+                                <tr>
+                                    <td class="px-6 py-4"><b>${t.desc}</b><br><small class="text-slate-400">${t.date}</small></td>
+                                    <td class="px-6 py-4"><span class="${t.type==='in'?'text-green-500':'text-red-500'} font-bold">${t.type.toUpperCase()}</span></td>
+                                    <td class="px-6 py-4 font-bold">Rp ${t.amount.toLocaleString()}</td>
+                                    <td class="px-6 py-4"><button onclick="deleteData('transactions', ${t.id}, 'finance')" class="text-slate-300 hover:text-red-500"><i class="fas fa-trash"></i></button></td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        function addFinance(type) {
+            const desc = document.getElementById(type + '-desc').value;
+            const amount = parseInt(document.getElementById(type + '-amount').value);
+            if(!desc || !amount) return alert('Lengkapi data!');
+            
+            app.transactions.push({
+                id: Date.now(),
+                date: new Date().toLocaleDateString('id-ID'),
+                desc, amount, type
+            });
+            persist(); renderView('finance');
+        }
+
+        // --- ATTENDANCE ---
+        function viewAttendance(container) {
+            const today = new Date().toISOString().split('T')[0];
+            const hasAttended = app.attendance.find(a => a.userId === currentUser.id && a.date === today);
+
+            container.innerHTML = `
+                <div class="mb-8">
+                    <h2 class="text-3xl font-extrabold text-slate-800">Absensi Karyawan</h2>
+                    <p class="text-slate-400">Status kehadiran hari ini: <b>${today}</b></p>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div class="card p-8 text-center">
+                        <div class="w-20 h-20 bg-orange-100 text-orange-600 rounded-3xl flex items-center justify-center text-3xl mx-auto mb-6">
+                            <i class="fas fa-fingerprint"></i>
+                        </div>
+                        <h3 class="text-xl font-bold mb-2">Presensi Mandiri</h3>
+                        <p class="text-slate-400 text-sm mb-8">Klik tombol di bawah untuk mencatat kehadiran Anda hari ini.</p>
+                        ${hasAttended 
+                            ? `<div class="bg-green-100 text-green-700 py-4 rounded-xl font-bold italic">Sudah Absen: ${hasAttended.time}</div>`
+                            : `<button onclick="doAttendance()" class="w-full bg-slate-900 text-white py-4 rounded-xl font-bold shadow-xl">ABSEN SEKARANG</button>`
+                        }
+                    </div>
+
+                    <div class="card overflow-hidden">
+                        <div class="p-6 border-b font-bold text-sm bg-slate-50">Log Kehadiran Hari Ini</div>
+                        <div class="divide-y max-h-80 overflow-y-auto">
+                            ${app.attendance.filter(a => a.date === today).map(a => `
+                                <div class="p-4 flex justify-between items-center">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-8 h-8 bg-blue-500 text-white rounded-lg flex items-center justify-center text-xs font-bold">${a.userName.charAt(0)}</div>
+                                        <span class="text-sm font-bold">${a.userName}</span>
+                                    </div>
+                                    <span class="text-xs font-mono bg-slate-100 px-2 py-1 rounded">${a.time}</span>
+                                </div>
+                            `).join('') || '<p class="p-10 text-center text-slate-300 italic">Belum ada yang absen</p>'}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function doAttendance() {
+            app.attendance.push({
+                id: Date.now(),
+                userId: currentUser.id,
+                userName: currentUser.name,
+                date: new Date().toISOString().split('T')[0],
+                time: new Date().toLocaleTimeString('id-ID')
+            });
+            persist(); renderView('attendance');
+        }
+
+        // --- PAYROLL ---
+        function viewPayroll(container) {
+            container.innerHTML = `
+                <div class="mb-8">
+                    <h2 class="text-3xl font-extrabold text-slate-800">Sistem Penggajian</h2>
+                    <p class="text-slate-400">Generate slip gaji berdasarkan kehadiran & gaji pokok.</p>
+                </div>
+                <div class="grid grid-cols-1 gap-4">
+                    ${app.users.map(u => {
+                        const attends = app.attendance.filter(a => a.userId === u.id).length;
+                        const total = u.role === 'owner' ? u.salary : (u.salary * attends);
+                        return `
+                            <div class="card p-6 flex flex-col md:flex-row justify-between items-center gap-4">
+                                <div class="flex items-center gap-4">
+                                    <div class="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400"><i class="fas fa-user"></i></div>
+                                    <div>
+                                        <h4 class="font-black text-slate-800">${u.name}</h4>
+                                        <p class="text-xs text-slate-400">${u.role.toUpperCase()} | Gaji: Rp ${u.salary.toLocaleString()} / ${u.role==='owner'?'Bln':'Hadir'}</p>
+                                    </div>
+                                </div>
+                                <div class="text-center md:text-right">
+                                    <p class="text-[10px] font-bold text-slate-400 uppercase">Estimasi Terbayar</p>
+                                    <p class="text-xl font-black text-blue-600">Rp ${total.toLocaleString()}</p>
+                                </div>
+                                <button onclick="generateSlip(${u.id}, ${total})" class="bg-orange-500 text-white px-4 py-2 rounded-lg font-bold text-xs"><i class="fas fa-receipt mr-2"></i> SLIP GAJI</button>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        }
+
+        function generateSlip(userId, total) {
+            const u = app.users.find(x => x.id === userId);
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            doc.setFontSize(22);
+            doc.text("YOIKI FOOD ENTERPRISE", 105, 20, { align: "center" });
+            doc.setFontSize(10);
+            doc.text("Slip Gaji Karyawan - Periode Aktif", 105, 28, { align: "center" });
+            doc.line(20, 35, 190, 35);
+
+            doc.setFontSize(12);
+            doc.text(`Nama Karyawan : ${u.name}`, 20, 50);
+            doc.text(`Jabatan       : ${u.role.toUpperCase()}`, 20, 60);
+            doc.text(`Tanggal Cetak : ${new Date().toLocaleDateString()}`, 20, 70);
+
+            doc.autoTable({
+                startY: 80,
+                head: [['Deskripsi', 'Detail', 'Subtotal']],
+                body: [
+                    ['Gaji Pokok/Rate', `Rp ${u.salary.toLocaleString()}`, '-'],
+                    ['Total Kehadiran', `${app.attendance.filter(a => a.userId === u.id).length} Hari`, '-'],
+                    ['TOTAL DITERIMA', '', `Rp ${total.toLocaleString()}`]
+                ],
+                theme: 'striped'
+            });
+
+            doc.text("Tanda Tangan Penerima", 150, 150, { align: "center" });
+            doc.text("( ____________________ )", 150, 180, { align: "center" });
+
+            doc.save(`Slip_Gaji_${u.name.replace(/\s/g, '_')}.pdf`);
+        }
+
+        // --- REPORTS ---
+        function viewReports(container) {
+            container.innerHTML = `
+                <div class="mb-10">
+                    <h2 class="text-3xl font-extrabold text-slate-800">Pusat Laporan</h2>
+                    <p class="text-slate-400">Download data dalam format PDF profesional.</p>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div onclick="exportPDF('stock')" class="card p-10 flex flex-col items-center justify-center cursor-pointer hover:border-orange-500 transition border-2 border-dashed">
+                        <i class="fas fa-boxes text-4xl text-orange-500 mb-4"></i>
+                        <h4 class="font-bold">Laporan Inventaris</h4>
+                    </div>
+                    <div onclick="exportPDF('finance')" class="card p-10 flex flex-col items-center justify-center cursor-pointer hover:border-blue-500 transition border-2 border-dashed">
+                        <i class="fas fa-file-invoice-dollar text-4xl text-blue-500 mb-4"></i>
+                        <h4 class="font-bold">Laporan Keuangan</h4>
+                    </div>
+                </div>
+            `;
+        }
+
+        function exportPDF(type) {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            doc.setFontSize(18);
+            doc.text(`LAPORAN ${type.toUpperCase()} - YOIKI FOOD`, 14, 20);
+            doc.setFontSize(10);
+            doc.text(`Dicetak pada: ${new Date().toLocaleString()}`, 14, 28);
+
+            if(type === 'stock') {
+                doc.autoTable({
+                    startY: 35,
+                    head: [['Nama Produk', 'Jenis', 'Stok', 'Unit']],
+                    body: app.stock.map(s => [s.name, s.type, s.qty, s.unit])
+                });
+            } else {
+                doc.autoTable({
+                    startY: 35,
+                    head: [['Tanggal', 'Keterangan', 'Tipe', 'Nominal']],
+                    body: app.transactions.map(t => [t.date, t.desc, t.type.toUpperCase(), `Rp ${t.amount.toLocaleString()}`])
+                });
+            }
+
+            doc.save(`Laporan_${type}_YoikiFood.pdf`);
+        }
+
+        // --- USERS & BRANCHES (REUSE FROM PREVIOUS BUT PERSISTED) ---
+        function viewBranches(container) {
+            container.innerHTML = `
+                <div class="mb-8 flex justify-between items-center">
+                    <h2 class="text-3xl font-extrabold text-slate-800">Cabang</h2>
+                    <button onclick="editBranchModal()" class="bg-slate-900 text-white px-5 py-2 rounded-xl font-bold">+ Cabang</button>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    ${app.branches.map(b => `
+                        <div class="card p-6 flex justify-between items-center">
+                            <div><h4 class="font-black text-slate-800">${b.name}</h4><p class="text-xs text-slate-400">${b.address}</p></div>
+                            <div class="flex gap-2">
+                                <button onclick="deleteData('branches', ${b.id}, 'branches')" class="text-red-400 p-2"><i class="fas fa-trash"></i></button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+        function editBranchModal() {
+            openModal(`<div class="p-8">
+                <h2 class="text-2xl font-black mb-4">Tambah Cabang</h2>
+                <input id="b-name" class="mb-4" placeholder="Nama Cabang">
+                <input id="b-address" class="mb-4" placeholder="Alamat">
+                <button onclick="saveBranch()" class="w-full bg-slate-900 text-white py-3 rounded-xl">SIMPAN</button>
+            </div>`);
+        }
+        function saveBranch() {
+            app.branches.push({ id: Date.now(), name: document.getElementById('b-name').value, address: document.getElementById('b-address').value });
+            persist(); closeModal(); renderView('branches');
+        }
+
+        function viewUsers(container) {
+            container.innerHTML = `
+                <div class="mb-8 flex justify-between items-center">
+                    <h2 class="text-3xl font-extrabold text-slate-800">Manajemen User</h2>
+                    <button onclick="editUserModal()" class="bg-orange-500 text-white px-5 py-2 rounded-xl font-bold">+ User</button>
+                </div>
+                <div class="card overflow-hidden">
+                    <table class="w-full text-left">
+                        <thead class="bg-slate-50">
+                            <tr class="text-[10px] uppercase font-black text-slate-400"><th class="px-6 py-4">Nama</th><th class="px-6 py-4">Role</th><th class="px-6 py-4">Aksi</th></tr>
+                        </thead>
+                        <tbody class="divide-y">
+                            ${app.users.map(u => `
+                                <tr>
+                                    <td class="px-6 py-4 font-bold">${u.name}</td>
+                                    <td class="px-6 py-4"><span class="text-[10px] bg-blue-100 px-2 py-1 rounded font-bold">${u.role.toUpperCase()}</span></td>
+                                    <td class="px-6 py-4">
+                                        ${u.role !== 'owner' ? `<button onclick="deleteData('users', ${u.id}, 'users')" class="text-red-400"><i class="fas fa-trash"></i></button>` : '-'}
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+        function editUserModal() {
+            openModal(`<div class="p-8">
+                <h2 class="text-2xl font-black mb-4">Tambah User</h2>
+                <input id="u-name" class="mb-2" placeholder="Nama Lengkap">
+                <input id="u-user" class="mb-2" placeholder="Username">
+                <input id="u-pass" type="password" class="mb-2" placeholder="Password">
+                <input id="u-salary" type="number" class="mb-4" placeholder="Gaji (Rp)">
+                <button onclick="saveUser()" class="w-full bg-orange-500 text-white py-3 rounded-xl">SIMPAN</button>
+            </div>`);
+        }
+        function saveUser() {
+            app.users.push({ 
+                id: Date.now(), 
+                name: document.getElementById('u-name').value, 
+                username: document.getElementById('u-user').value,
+                password: document.getElementById('u-pass').value,
+                salary: parseInt(document.getElementById('u-salary').value),
+                role: 'staff', branchId: 1
+            });
+            persist(); closeModal(); renderView('users');
+        }
+
+    </script>
+</body>
+</html>
